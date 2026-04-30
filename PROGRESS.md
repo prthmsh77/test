@@ -1,0 +1,133 @@
+# Shikhar — Build Progress
+
+## Phase 1: Foundation — COMPLETE ✅
+
+**1.1** PRD read and understood (5 critical decisions confirmed).
+
+**1.2 Monorepo (Turborepo)**
+- `/apps/api` — NestJS + Fastify + TypeScript
+- `/apps/ml` — FastAPI + Python 3.11
+- `/apps/web` — Next.js 14 (live-track public page)
+- `/apps/mobile` — React Native / Expo (scaffold + PingService)
+- `/packages/shared` — shared TypeScript types, escalation/ping constants
+- `/packages/database` — migrations, seed scripts, connection pool
+
+**1.3 Docker Compose**
+- PostgreSQL 16 + PostGIS + TimescaleDB (`timescale/timescaledb-ha:pg16`)
+- Redis 7, NATS 2.10 (JetStream), Temporal.io
+- Single `docker compose up -d` boots the full stack.
+- TimescaleDB gracefully degrades to plain Postgres when not available (dev/CI).
+
+**1.4 Database Migrations (9 migrations, all applied)**
+- `001` extensions (PostGIS, TimescaleDB conditional, uuid-ossp, pg_trgm)
+- `002` users, refresh_tokens, otp_requests
+- `003` emergency_contacts (confirmation flow, phone uniqueness)
+- `004` trails (GEOGRAPHY LineString, GiST indexes, waypoints)
+- `005` treks (state machine, Temporal workflow ID, duress flag, ERSS-112 consent)
+- `006` trek_pings (TimescaleDB hypertable 7-day chunks, escalation_events audit log)
+- `007` social (posts, comments, kudos, follows/buddy tier, groups)
+- `008` notifications (log + per-channel preferences)
+- `009` user_pins (trek 2FA PIN + duress PIN, SHA-256 hashed)
+
+**1.5 Seed data** — 5 MVP trails verified in DB:
+Triund, Kedarkantha, Hampta Pass, Rajmachi, Kalsubai.
+
+---
+
+## Phase 2: Auth & User — COMPLETE ✅
+
+- OTP service (MSG91, dev console fallback, 3-attempt brute-force guard)
+- JWT + refresh token rotation (SHA-256 hashed, 30-day expiry)
+- JwtStrategy validates user is active on every request
+- RolesGuard wired globally via `APP_GUARD`
+- Emergency contacts CRUD (free: 5, Pro: 10), confirmation token flow
+- `users/me`, `users/me/emergency-contacts` CRUD endpoints
+
+---
+
+## Phase 3: Trek Check-In / Check-Out — COMPLETE ✅
+
+### 3.1–3.2 Trek creation + state machine
+- `POST /api/v1/treks` — creates a PLANNED trek, validates future dates, links E-Contacts
+- State machine: `PLANNED → ACTIVE → COMPLETED | OVERDUE → INCIDENT | CANCELLED`
+
+### 3.3 Trek Start
+- `POST /api/v1/treks/:id/start`
+- Generates JWT-signed live-track token (8-day expiry)
+- Fires SMS to all E-Contacts via MSG91 (dev: console log)
+- Starts Temporal escalation workflow (idempotent on trek ID)
+
+### 3.4 GPS Ping Ingestion
+- `POST /api/v1/pings/batch` — up to 100 pings per batch
+- Idempotent: `INSERT ... ON CONFLICT DO NOTHING` on (trek_id, recorded_at)
+- Validates trek ownership and ACTIVE status
+- Triggers off-route check and altitude threshold detection per ping
+- `GET /api/v1/pings/:trekId/recent` — for live-track web view
+
+### 3.5 Trek End / Check-out
+- `POST /api/v1/treks/:id/end` — 2FA PIN verification (SHA-256 comparison)
+- Signals Temporal workflow `trekEnded` to cancel all pending timers
+
+### 3.6 Temporal Escalation Workflow (L0→L5)
+- `apps/api/src/modules/treks/workflows/escalation.workflow.ts`
+- Durable: survives server restarts via Temporal state persistence
+- Signal handlers: `trekEnded`, `extendTime`, `sosTrigger`
+- L0 (0 min) → L1 (30 min) → L2 (2h) → L3 (4h) → L4 (6h) → L5 (continuous)
+- Activities: SMS (MSG91), WhatsApp (Gupshup), voice (Exotel), ERSS-112 dispatch
+- Dev mode: all activities log to console when API keys unset
+
+### 3.7 Off-Route Detection
+- `TreksService.checkOffRoute()` — PostGIS `ST_Distance(declared_route, current_point)`
+- Threshold: 150m (PRD §7.3 non-negotiable)
+- Returns boolean; controller/workflow triggers "Are you OK?" push
+
+### 3.8 Altitude Threshold Alerts
+- `TreksService.getAltitudeAlert()` — detects crossing 2400m, 3500m, 4500m
+- Called on every ping ingest; alert returned in batch response for immediate push
+
+### 3.9 SOS Endpoint
+- `POST /api/v1/treks/:id/sos` — 3 modes: HELP, MEDICAL, CRITICAL
+- CRITICAL: immediately signals workflow to L4 + sets trek to INCIDENT
+- MEDICAL: signals L3 Sentinel dispatch
+- HELP: E-Contact notification only
+- Rate limit: 30/min (vs global 100/min — safety-critical)
+
+### 3.10 Coercion/Duress Silent PIN
+- On check-out: if entered PIN matches `duress_pin_hash`, appears to succeed
+- Internally: marks `is_duress=true`, signals workflow `sosTrigger` (CRITICAL)
+- Designed for women's safety scenarios (PRD §7.6)
+
+---
+
+## Tests — ALL PASSING ✅
+
+| Package | Tests | Passing |
+|---|---|---|
+| `@shikhar/shared` | 6 | 6 ✅ |
+| `@shikhar/api` | 33 | 33 ✅ |
+| `apps/ml` (Python) | 14 | 14 ✅ |
+| **Total** | **53** | **53** ✅ |
+
+---
+
+## What's Next — Phase 4: Live Map & Real-time
+
+- [ ] 4.1 WebSocket gateway (NestJS socket.io) — live ping fan-out to E-Contacts
+- [ ] 4.2 Redis Streams consumer for ping events
+- [ ] 4.3 Public live-track Next.js page (Mapbox GL + WebSocket, no install needed)
+- [ ] 4.4 React Native map screen (Mapbox GL)
+- [ ] 4.5 Background geolocation service (react-native-background-geolocation)
+- [ ] 4.6 Offline ping queue (MMKV + sync on reconnect)
+- [ ] 4.7 Group live view
+- [ ] 4.8 Battery-adaptive ping interval
+- [ ] 4.9 Last-known-location cache
+
+---
+
+## Blockers
+
+None. Phase 3 complete. Ready for Phase 4.
+
+---
+
+See `ARCHITECTURE.md` for all design decisions.

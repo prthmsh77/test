@@ -1,0 +1,151 @@
+# Single `docker compose up -d` starts the full local dev stack.
+# All services use health checks so dependent services wait for readiness.
+
+services:
+  # ─── PostgreSQL + PostGIS + TimescaleDB ───────────────────────────────────
+  postgres:
+    # timescaledb-ha includes PostGIS and TimescaleDB out of the box.
+    image: timescale/timescaledb-ha:pg16-latest
+    container_name: shikhar_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shikhar
+      POSTGRES_USER: shikhar
+      POSTGRES_PASSWORD: shikhar_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shikhar -d shikhar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: shikhar_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ─── NATS JetStream ───────────────────────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    container_name: shikhar_nats
+    restart: unless-stopped
+    command: >
+      -js
+      -sd /data
+      -m 8222
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Temporal.io (durable escalation workflows) ───────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: shikhar_temporal
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: shikhar
+      POSTGRES_PWD: shikhar_dev
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─── NestJS API ───────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: shikhar_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: shikhar
+      POSTGRES_USER: shikhar
+      POSTGRES_PASSWORD: shikhar_dev
+      REDIS_URL: redis://redis:6379
+      NATS_URL: nats://nats:4222
+      TEMPORAL_ADDRESS: temporal:7233
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages:/app/packages
+
+  # ─── Python ML Service ────────────────────────────────────────────────────
+  ml:
+    build:
+      context: apps/ml
+      dockerfile: Dockerfile
+    container_name: shikhar_ml
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      DATABASE_URL: postgresql://shikhar:shikhar_dev@postgres:5432/shikhar
+      ENVIRONMENT: development
+    ports:
+      - "8000:8000"
+
+  # ─── Next.js Web (Live-Track) ─────────────────────────────────────────────
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    container_name: shikhar_web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      NEXT_PUBLIC_WS_URL: ws://localhost:3000
+      NEXT_PUBLIC_MAPBOX_TOKEN: ${MAPBOX_PUBLIC_TOKEN:-}
+    ports:
+      - "3001:3001"
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:

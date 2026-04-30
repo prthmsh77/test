@@ -1,0 +1,21 @@
+{
+  "name": "@shikhar/database",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "db:migrate": "node -r ts-node/register scripts/migrate.ts",
+    "db:seed": "node -r ts-node/register scripts/seed.ts",
+    "db:reset": "node -r ts-node/register scripts/reset.ts",
+    "test": "jest --passWithNoTests"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@shikhar/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "^14.2.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.7.5",
+    "mapbox-gl": "^3.4.0",
+    "@shikhar/shared": "*"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/mapbox-gl": "^3.1.0",
+    "typescript": "^5.4.5"
+  }
+}
