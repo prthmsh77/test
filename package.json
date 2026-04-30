@@ -1,0 +1,31 @@
+{
+  "name": "shikhar",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shikhar — India's Trekking Social + Safety Platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:migrate": "turbo run db:migrate --filter=@shikhar/database",
+    "db:seed": "turbo run db:seed --filter=@shikhar/database",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "turbo": "^2.9.6",
+    "typescript": "^5.4.5",
+    "prettier": "^3.3.0",
+    "@types/node": "^20.14.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}
