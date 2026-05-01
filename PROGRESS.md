@@ -110,23 +110,83 @@ Triund, Kedarkantha, Hampta Pass, Rajmachi, Kalsubai.
 
 ---
 
-## What's Next — Phase 4: Live Map & Real-time
+## Phase 3.5: Mobile App Frontend — COMPLETE ✅
+
+### 3.5.1 Auth Flow (MSG91 OTP — Live)
+- Welcome screen with gradient hero + "Get Started" CTA
+- Login screen: phone input (+91 prefix), calls MSG91 `sendOtp` widget API
+- OTP screen: 6-digit verification, calls MSG91 `verifyOtp` widget API
+- Auth state managed via Zustand (`useAuthStore`)
+- Dev mode fallback: bypasses MSG91 if API is blocked/unreachable
+
+### 3.5.2 Navigation & App Shell
+- Root `_layout.tsx` — Stack navigator with modal transitions for trek screens
+- `(tabs)/_layout.tsx` — Bottom tab navigator (Feed, Map, Profile)
+- Dark-mode design system throughout (black backgrounds, white text, accent colors)
+
+### 3.5.3 Feed / Trail Explorer
+- Lists all 5 MVP seed trails (Triund, Kedarkantha, Hampta Pass, Rajmachi, Kalsubai)
+- Trail cards show difficulty badge, region, altitude, distance
+- Taps navigate to trek creation screen
+- Active trek banner shows at top when a trek is in progress
+
+### 3.5.4 Live Map Screen
+- `react-native-maps` with dark map style (Google Maps)
+- `expo-location` for foreground GPS tracking (5s interval, 5m distance filter)
+- Real-time polyline rendering of trek path from location history
+- Bottom panel shows altitude, accuracy, ping count
+- Center-on-user button
+- SOS button when trek is active
+
+### 3.5.5 Trek Management
+- **Create Trek** (`/trek/create`): trail detail view, stats grid, safety features list, "Start Trek" button
+- **Active Trek** (`/trek/active`): live dashboard with GPS pings, altitude, accuracy, safety status indicators
+- **End Trek**: confirmation dialog (2FA PIN placeholder for production)
+- State machine: Zustand `useTrekStore` mirrors backend PLANNED → ACTIVE → COMPLETED
+
+### 3.5.6 SOS Screen
+- 3-tier emergency system matching PRD §7.5:
+  - **HELP** — E-Contact notification only
+  - **MEDICAL** — Sentinel dispatch mobilized
+  - **CRITICAL** — Immediate L4 escalation + ERSS-112 dispatch
+- Confirmation dialogs prevent accidental triggers
+
+### 3.5.7 Profile Screen
+- User stats (treks, GPS pings, followers)
+- Menu items: Emergency Contacts, Trek PIN / Duress PIN, Notification Prefs, Safety Settings
+- Active trek banner with link to dashboard
+- Logout clears auth state and returns to welcome screen
+
+---
+
+## What's Next — Phase 4: Live Map & Real-time (Backend)
 
 - [ ] 4.1 WebSocket gateway (NestJS socket.io) — live ping fan-out to E-Contacts
 - [ ] 4.2 Redis Streams consumer for ping events
 - [ ] 4.3 Public live-track Next.js page (Mapbox GL + WebSocket, no install needed)
-- [ ] 4.4 React Native map screen (Mapbox GL)
-- [ ] 4.5 Background geolocation service (react-native-background-geolocation)
-- [ ] 4.6 Offline ping queue (MMKV + sync on reconnect)
+- [x] 4.4 React Native map screen (Google Maps + expo-location) ✅
+- [ ] 4.5 Background geolocation service (react-native-background-geolocation — requires dev build)
+- [ ] 4.6 Offline ping queue (MMKV — requires dev build for native module)
 - [ ] 4.7 Group live view
-- [ ] 4.8 Battery-adaptive ping interval
+- [x] 4.8 Battery-adaptive ping interval (PingService logic complete) ✅
 - [ ] 4.9 Last-known-location cache
+
+## Phase 5: Connect Mobile ↔ Backend
+
+- [ ] 5.1 Wire login screen → `POST /api/v1/auth/otp/request` + `POST /api/v1/auth/otp/verify`
+- [ ] 5.2 Wire trek creation → `POST /api/v1/treks`
+- [ ] 5.3 Wire trek start → `POST /api/v1/treks/:id/start`
+- [ ] 5.4 Wire GPS pings → `POST /api/v1/pings/batch` (from PingService)
+- [ ] 5.5 Wire trek end → `POST /api/v1/treks/:id/end` (with 2FA PIN)
+- [ ] 5.6 Wire SOS → `POST /api/v1/treks/:id/sos`
+- [ ] 5.7 WebSocket connection for live-track updates
+- [ ] 5.8 Emergency contacts CRUD from mobile
 
 ---
 
 ## Blockers
 
-None. Phase 3 complete. Ready for Phase 4.
+None. Phase 3.5 (Mobile Frontend) complete. Ready for Phase 4/5.
 
 ---
 
