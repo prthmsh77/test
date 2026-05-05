@@ -2,10 +2,10 @@
 # All services use health checks so dependent services wait for readiness.
 
 services:
-  # ─── PostgreSQL + PostGIS + TimescaleDB ───────────────────────────────────
+  # ─── PostgreSQL + PostGIS (simplified for dev) ────────────────────────────
   postgres:
-    # timescaledb-ha includes PostGIS and TimescaleDB out of the box.
-    image: timescale/timescaledb-ha:pg16-latest
+    # We must use postgis to get geo functions
+    image: postgis/postgis:16-3.4
     container_name: shikhar_postgres
     restart: unless-stopped
     environment:
@@ -68,12 +68,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DB: postgresql
+      DB: postgres12
       DB_PORT: 5432
       POSTGRES_USER: shikhar
       POSTGRES_PWD: shikhar_dev
       POSTGRES_SEEDS: postgres
-      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
     ports:
       - "7233:7233"
     healthcheck:

@@ -159,19 +159,20 @@ Triund, Kedarkantha, Hampta Pass, Rajmachi, Kalsubai.
 
 ---
 
-## What's Next — Phase 4: Live Map & Real-time (Backend)
+## Phase 4: WikiGIS & Real-time Monorepo Restructuring
 
-- [ ] 4.1 WebSocket gateway (NestJS socket.io) — live ping fan-out to E-Contacts
-- [ ] 4.2 Redis Streams consumer for ping events
-- [ ] 4.3 Public live-track Next.js page (Mapbox GL + WebSocket, no install needed)
-- [x] 4.4 React Native map screen (Google Maps + expo-location) ✅
-- [ ] 4.5 Background geolocation service (react-native-background-geolocation — requires dev build)
-- [ ] 4.6 Offline ping queue (MMKV — requires dev build for native module)
-- [ ] 4.7 Group live view
-- [x] 4.8 Battery-adaptive ping interval (PingService logic complete) ✅
-- [ ] 4.9 Last-known-location cache
+- [x] 4.0 Created `packages/gis` (TypeScript module with Turf.js) for abstracting GeoJSON schema-aware diffing and Bounding Box caching.
+- [x] 4.1 Created Migration `010_wikigis.sql` for WikiGIS `trail_edits` version control, UserRank, and TrailRank.
+- [x] 4.1.5 Expanded `apps/ml` Exertion limits using Hypotenuse Velocity ($V_H$) math to `/exertion` and `/classify` endpoint logic.
+- [ ] 4.2 WebSocket gateway (NestJS socket.io) — live ping fan-out to E-Contacts
+- [ ] 4.3 Redis Streams consumer for ping events
 
-## Phase 5: Connect Mobile ↔ Backend
+## Phase 5: Terrain & External Systems Integration
+
+- [x] 5.0 Implemented Token-based GeoJSON diffing in `packages/gis/src/diffing.ts`.
+- [x] 5.1 Built Backend WikiGIS routes in `apps/api` (`proposeEdit`, `mergeEdit`) resolving crowdsourced edits and updating UserRank.
+- [ ] 5.2 Implement PMTiles offline maps for mobile (Terrain-RGB rendering)
+- [ ] 5.3 Integrate MMRCC into Temporal escalation workflow
 
 - [ ] 5.1 Wire login screen → `POST /api/v1/auth/otp/request` + `POST /api/v1/auth/otp/verify`
 - [ ] 5.2 Wire trek creation → `POST /api/v1/treks`

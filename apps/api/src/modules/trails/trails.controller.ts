@@ -1,6 +1,8 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { TrailsService } from './trails.service';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('trails')
 @Controller('trails')
@@ -30,5 +32,28 @@ export class TrailsController {
   @ApiOperation({ summary: 'Get waypoints for a trail (camps, water, helipad, network spots)' })
   getWaypoints(@Param('id') id: string) {
     return this.trailsService.getWaypoints(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Post(':id/edits')
+  @ApiOperation({ summary: 'Propose a WikiGIS edit (GeoJSON) for a trail' })
+  proposeEdit(
+    @Param('id') id: string,
+    @Body('routeGeom') routeGeom: any,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.trailsService.proposeEdit(id, user.id, routeGeom);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Post('edits/:editId/merge')
+  @ApiOperation({ summary: 'Merge a proposed WikiGIS edit into the live trail using token-diffing' })
+  mergeEdit(
+    @Param('editId') editId: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.trailsService.mergeEdit(editId, user.id);
   }
 }

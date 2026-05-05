@@ -39,3 +39,23 @@
 **Decision:** Every GEOGRAPHY column has a GiST index.
 **Why:** PostGIS without spatial indexes falls back to sequential scan. For off-route detection (checked on every incoming ping) a sequential scan of trek_pings is O(n) on millions of rows. GiST reduces this to O(log n) bounding-box intersection.
 **Consequence:** Index creation must happen in the migration, not as an afterthought. `CREATE INDEX CONCURRENTLY` for future index additions on live tables.
+
+## ADR-009: GIS Module (`packages/gis`)
+**Decision:** All geospatial diffing, bounded box caching logic (like PMTiles resolution) and GeoJSON parsing occur inside a unified TS/Turf.js package.
+**Why:** Both `apps/api` and `apps/mobile` need to handle identical bounding box calculations or geometric mappings consistently without replicating core algorithm details.
+**Consequence:** Changes to WikiGIS and terrain mappings remain within `packages/gis`.
+
+## ADR-010: WikiGIS Versioning Database (`trail_edits`)
+**Decision:** Geographic routing updates form an audit trail as versioned objects, not direct UPDATE calls.
+**Why:** To ensure community-driven edits use a Kart-like distributed versioning flow for the mapping architecture.
+**Consequence:** Each edit introduces a `PENDING` proposal stored with an `edit_status` constraint before `APPROVED` by a ranking system.
+
+## ADR-011: ML Exertion Metric ($V_H$)
+**Decision:** We model trekking fatigue using the Hypotenuse Velocity metric natively computed in the Python `apps/ml` service over timestamped GPX pings.
+**Why:** Standard distance/gain algorithms fail in extremely varying terrains (like Sahyadri). $V_H$ applies log-normal probability limits directly to infer true effort or spot anomaly.
+**Consequence:** Both `/classify` and `/exertion` endpoints accept GPX objects extended with timestamps, utilizing `numpy` computation.
+
+## ADR-012: WikiGIS Editing & UserRank
+**Decision:** All map edits are stored as `trail_edits` with PENDING statuses. On approval, schema-aware token diffing runs to enforce strict geospatial consistency before updating `route_geography`. Contributors receive explicit UserRank bumps (+0.10) per merged edit.
+**Why:** To guard against geo-data corruption without breaking standard database geometries.
+**Consequence:** `mergeEdit` wraps DB logic in a transaction, performing rollback if token diffing detects concurrent editing conflicts.
