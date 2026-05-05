@@ -197,14 +197,32 @@ Triund, Kedarkantha, Hampta Pass, Rajmachi, Kalsubai.
   - `useTrekStore.endTrek()` disconnects the socket
 - [x] 5.8 Emergency contacts CRUD from mobile
   - `settings/emergency-contacts.tsx` loads contacts from API on mount, adds/deletes via API, pull-to-refresh
-- [ ] 5.2 Implement PMTiles offline maps for mobile (Terrain-RGB rendering)
-- [ ] 5.3 Integrate MMRCC into Temporal escalation workflow
+- [x] 5.2 Offline map caching — tile-utils + API tile manifest + mobile OfflineMapService
+  - `packages/gis/src/tile-utils.ts`: `lngLatToTile`, `bboxToTiles`, `buildTileManifest`, `bufferBBox`
+  - `GET /api/v1/trails/:id/tile-manifest`: returns 5 km-buffered bbox + OSM tile URLs (zoom 10–14)
+  - `apps/mobile/src/services/offline-map.service.ts`: download tiles to expo-file-system with concurrency control, resume-safe, progress callbacks
+  - `create.tsx`: "Download Offline Map" button — fetches manifest, downloads tiles, shows cached state
+  - `map.tsx`: `<UrlTile>` overlay with `file://` URIs when tiles cached; `OFFLINE` / `MAP CACHED` badges
+  - Note: full Terrain-RGB 3D rendering requires MapLibre GL Native (Phase 6)
+- [x] 5.3 MMRCC integrated into Temporal L3 escalation
+  - `EscalationContext` extended with `trailRegion?`
+  - `sendL3MmrccAlert` activity: notifies MMRCC helpline (7620-230-231) + nearest regional affiliate (Shivdurga Mitra, Yashvanti Hikers, Sahyadri Mitra) via SMS + Exotel voice call
+  - Workflow L3 runs `sendL3SentinelDispatch` + `sendL3MmrccAlert` in `Promise.all`
+  - `TreksService.startTrek()` now passes `trailRegion` in escalation context
 
 ---
 
 ## Blockers
 
-None. Phases 4.2, 4.3, and 5.1–5.8 complete.
+None. Phases 4.2, 4.3, 5.1–5.8, and 5.2–5.3 backend+mobile all complete.
+
+## Next Phase (Phase 6)
+
+- [ ] 6.1 FCM push notifications (replace console.log in L0 + off-route alerts)
+- [ ] 6.2 MapLibre GL Native for Terrain-RGB 3D rendering + PMTiles proper offline
+- [ ] 6.3 Post-trek flyover (3D video replay)
+- [ ] 6.4 AMS / anomaly ML endpoint integration on ping ingest
+- [ ] 6.5 Satellite SOS fallback via native iOS/Android APIs
 
 ---
 

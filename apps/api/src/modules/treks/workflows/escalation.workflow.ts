@@ -31,6 +31,7 @@ const {
   sendL1EContactAlert,
   sendL2WelfareCheck,
   sendL3SentinelDispatch,
+  sendL3MmrccAlert,
   sendL4AuthorityEscalation,
 } = proxyActivities<
   typeof import('../activities/escalation.activities')
@@ -94,8 +95,11 @@ export async function escalationWorkflow(ctx: EscalationContext): Promise<void> 
   const l2Resolved = await condition(() => trekEnded, ESCALATION_OFFSETS_MS.L3 - ESCALATION_OFFSETS_MS.L2);
   if (l2Resolved || trekEnded) return;
 
-  // ── L3: Sentinel dispatch at planned_end + 4h ──────────────────────────────
-  await sendL3SentinelDispatch(ctx);
+  // ── L3: Sentinel dispatch + MMRCC alert (if Maharashtra region) ──────────────
+  await Promise.all([
+    sendL3SentinelDispatch(ctx),
+    sendL3MmrccAlert(ctx),
+  ]);
   log.info('L3 fired', { trekId: ctx.trekId });
 
   const l3Resolved = await condition(() => trekEnded, ESCALATION_OFFSETS_MS.L4 - ESCALATION_OFFSETS_MS.L3);

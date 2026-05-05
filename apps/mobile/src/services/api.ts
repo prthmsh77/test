@@ -167,6 +167,17 @@ class ApiClient {
   async getTrails() {
     return this.request<any[]>("/api/v1/trails");
   }
+
+  async getTileManifest(trailId: string) {
+    return this.request<{
+      trailId: string;
+      trailName: string;
+      bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number };
+      totalTiles: number;
+      estimatedSizeKb: number;
+      tiles: Array<{ z: number; x: number; y: number; url: string }>;
+    }>(`/api/v1/trails/${trailId}/tile-manifest`);
+  }
 }
 
 export const api = new ApiClient();

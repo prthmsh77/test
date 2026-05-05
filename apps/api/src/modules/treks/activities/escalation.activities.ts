@@ -14,6 +14,7 @@ export interface EscalationContext {
   userId: string;
   userName: string;
   trailName?: string;
+  trailRegion?: string;
   lastKnownLat?: number;
   lastKnownLng?: number;
   lastKnownAltM?: number;
@@ -27,6 +28,31 @@ export interface EscalationContext {
   }>;
   erss112Consent: boolean;
   plannedEndAt: string;
+}
+
+/**
+ * Maharashtra regions and their closest MMRCC affiliate rescue unit.
+ * MMRCC central helpline: 7620-230-231 (24/7).
+ * Affiliates from AMGM rescue committee (amgm.org).
+ */
+const MMRCC_HELPLINE = '917620230231';
+
+const MMRCC_REGIONAL_CONTACTS: Record<string, { org: string; phone: string }> = {
+  Maharashtra: { org: 'MMRCC Central', phone: MMRCC_HELPLINE },
+  'Western Ghats': { org: 'MMRCC Central', phone: MMRCC_HELPLINE },
+  Konkan: { org: 'Sahyadri Mitra (Mahad)', phone: MMRCC_HELPLINE },
+  Pune: { org: 'Shivdurga Mitra (Lonavla)', phone: MMRCC_HELPLINE },
+  Nashik: { org: 'MMRCC Central', phone: MMRCC_HELPLINE },
+};
+
+const MAHARASHTRA_REGIONS = new Set(Object.keys(MMRCC_REGIONAL_CONTACTS));
+
+function getMmrccContact(trailRegion?: string): { org: string; phone: string } | null {
+  if (!trailRegion) return null;
+  for (const [key, contact] of Object.entries(MMRCC_REGIONAL_CONTACTS)) {
+    if (trailRegion.toLowerCase().includes(key.toLowerCase())) return contact;
+  }
+  return null;
 }
 
 /**
@@ -94,6 +120,43 @@ export async function sendL3SentinelDispatch(ctx: EscalationContext): Promise<vo
     `${ctx.lastKnownLat},${ctx.lastKnownLng}`,
   );
   // TODO Phase 4: push to nearby Sentinels via FCM topic based on geo-hash.
+}
+
+/**
+ * L3-MMRCC: Notify the Maharashtra Mountaineers Rescue Coordination Centre (7620-230-231)
+ * when the trek is in the Maharashtra/Konkan/Sahyadri region.
+ * Called in parallel with the Sentinel dispatch at L3.
+ */
+export async function sendL3MmrccAlert(ctx: EscalationContext): Promise<void> {
+  const contact = getMmrccContact(ctx.trailRegion);
+  if (!contact) {
+    console.log(`[escalation L3-MMRCC] Trek ${ctx.trekId}: trail region "${ctx.trailRegion}" is outside Maharashtra — MMRCC not notified`);
+    return;
+  }
+
+  const locationStr = ctx.lastKnownLat
+    ? `Last GPS: ${ctx.lastKnownLat.toFixed(4)},${ctx.lastKnownLng?.toFixed(4)}`
+    : 'Last GPS unavailable';
+
+  const message =
+    `[Shikhar RESCUE ALERT] Trekker ${ctx.userName} on ${ctx.trailName ?? 'unknown trail'} ` +
+    `has not responded since planned end. ${locationStr}. ` +
+    `Live track: ${ctx.liveTrackUrl}. Trek ID: ${ctx.trekId}`;
+
+  console.log(`[escalation L3-MMRCC] Notifying ${contact.org} (${contact.phone}) for trek ${ctx.trekId}`);
+  await sendSms(contact.phone, message);
+
+  // Also attempt a voice call to MMRCC via Exotel if configured.
+  if (process.env.EXOTEL_API_KEY) {
+    try {
+      await sendVoiceCall(contact.phone, ctx.userName);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[escalation L3-MMRCC] Voice call to MMRCC failed: ${errMsg}`);
+    }
+  } else {
+    console.log(`[escalation L3-MMRCC DEV] Would call MMRCC ${contact.phone} for trek ${ctx.trekId}`);
+  }
 }
 
 /**

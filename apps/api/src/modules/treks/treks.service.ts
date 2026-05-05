@@ -128,12 +128,13 @@ export class TreksService {
     );
     const userName = userRows[0]?.name ?? 'Your trekker';
 
-    // Fetch trail name if linked.
-    const { rows: trailRows } = await this.db.query<{ name: string }>(
-      `SELECT t2.name FROM treks t JOIN trails t2 ON t2.id = t.trail_id WHERE t.id = $1`,
+    // Fetch trail name and region if linked.
+    const { rows: trailRows } = await this.db.query<{ name: string; region: string }>(
+      `SELECT t2.name, t2.region FROM treks t JOIN trails t2 ON t2.id = t.trail_id WHERE t.id = $1`,
       [trekId],
     );
     const trailName = trailRows[0]?.name ?? 'a trek';
+    const trailRegion = trailRows[0]?.region;
 
     // Fire-and-forget SMS to all E-Contacts (actual delivery handled by notification service in Phase 7).
     const plannedEnd = new Date(trek.planned_end_at);
@@ -155,6 +156,7 @@ export class TreksService {
       userId,
       userName,
       trailName,
+      trailRegion,
       liveTrackUrl,
       emergencyContacts: contacts.map((c) => ({
         id: c.id ?? '',

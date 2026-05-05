@@ -1,10 +1,13 @@
 import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, Alert, Platform, Dimensions } from "react-native";
 import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker, Polyline, UrlTile, PROVIDER_GOOGLE } from "react-native-maps";
 import * as Location from "expo-location";
+import * as Network from "expo-network";
 import { useTrekStore } from "../../src/store/trekStore";
+import { useAuthStore } from "../../src/store/authStore";
 import { useRouter } from "expo-router";
+import { isTrailCached, localTileTemplate } from "../../src/services/offline-map.service";
 
 const { width, height } = Dimensions.get("window");
 
@@ -17,14 +20,31 @@ export default function MapScreen() {
   const activeTrek = useTrekStore((s) => s.activeTrek);
   const updateLocation = useTrekStore((s) => s.updateLocation);
   const isTracking = useTrekStore((s) => s.isTracking);
+  const trails = useTrekStore((s) => s.trails);
+  const token = useAuthStore((s) => s.token);
 
   const [hasPermission, setHasPermission] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
+  const [hasCachedTiles, setHasCachedTiles] = useState(false);
   const [region, setRegion] = useState({
     latitude: 20.5937,
     longitude: 78.9629,
     latitudeDelta: 15,
     longitudeDelta: 15,
   });
+
+  // Check network status and tile cache on mount and when active trek changes
+  useEffect(() => {
+    (async () => {
+      const net = await Network.getNetworkStateAsync();
+      setIsOffline(!net.isConnected);
+
+      if (activeTrek) {
+        const cached = await isTrailCached(activeTrek.trailId);
+        setHasCachedTiles(cached);
+      }
+    })();
+  }, [activeTrek]);
 
   useEffect(() => {
     (async () => {
@@ -35,7 +55,6 @@ export default function MapScreen() {
       }
       setHasPermission(true);
 
-      // Get initial location
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const ping = {
         latitude: loc.coords.latitude,
@@ -95,10 +114,19 @@ export default function MapScreen() {
     }
   };
 
+  const activeTrail = activeTrek ? trails.find((t) => t.id === activeTrek.trailId) : null;
+
   const polylineCoords = locationHistory.map((p) => ({
     latitude: p.latitude,
     longitude: p.longitude,
   }));
+
+  // Show trail start marker when a trek is active
+  const trailMarker = activeTrail
+    ? { latitude: activeTrail.coordinates.latitude, longitude: activeTrail.coordinates.longitude }
+    : null;
+
+  const showOfflineTiles = hasCachedTiles && activeTrek;
 
   return (
     <View style={styles.container}>
@@ -110,11 +138,33 @@ export default function MapScreen() {
         showsMyLocationButton={false}
         customMapStyle={darkMapStyle}
       >
+        {/* Overlay cached OSM tiles when offline tiles are available for this trail */}
+        {showOfflineTiles && (
+          <UrlTile
+            urlTemplate={localTileTemplate(activeTrek!.trailId)}
+            maximumZ={14}
+            minimumZ={10}
+            flipY={false}
+            opacity={isOffline ? 1.0 : 0.5}
+            zIndex={1}
+          />
+        )}
+
         {polylineCoords.length > 1 && (
           <Polyline
             coordinates={polylineCoords}
             strokeColor="#4ADE80"
             strokeWidth={4}
+            zIndex={2}
+          />
+        )}
+
+        {trailMarker && (
+          <Marker
+            coordinate={trailMarker}
+            title={activeTrail?.name}
+            pinColor="#4ADE80"
+            zIndex={3}
           />
         )}
       </MapView>
@@ -124,12 +174,26 @@ export default function MapScreen() {
         <Text style={styles.headerTitle}>
           {activeTrek ? activeTrek.trailName : "Live Map"}
         </Text>
-        {activeTrek && (
-          <View style={styles.trackingBadge}>
-            <View style={styles.liveIndicator} />
-            <Text style={styles.trackingText}>TRACKING</Text>
-          </View>
-        )}
+        <View style={styles.badges}>
+          {activeTrek && (
+            <View style={styles.trackingBadge}>
+              <View style={styles.liveIndicator} />
+              <Text style={styles.trackingText}>TRACKING</Text>
+            </View>
+          )}
+          {isOffline && (
+            <View style={styles.offlineBadge}>
+              <Ionicons name="cloud-offline-outline" size={12} color="#FACC15" />
+              <Text style={styles.offlineText}>OFFLINE</Text>
+            </View>
+          )}
+          {hasCachedTiles && (
+            <View style={styles.cachedBadge}>
+              <Ionicons name="save-outline" size={12} color="#60A5FA" />
+              <Text style={styles.cachedText}>MAP CACHED</Text>
+            </View>
+          )}
+        </View>
       </SafeAreaView>
 
       {/* Center button */}
@@ -207,7 +271,6 @@ export default function MapScreen() {
   );
 }
 
-// Dark map style for Google Maps
 const darkMapStyle = [
   { elementType: "geometry", stylers: [{ color: "#212121" }] },
   { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
@@ -224,19 +287,10 @@ const darkMapStyle = [
 ];
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  map: {
-    width: width,
-    height: height,
-  },
+  container: { flex: 1, backgroundColor: "#000" },
+  map: { width, height },
   headerOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
+    position: "absolute", top: 0, left: 0, right: 0,
     paddingHorizontal: 20,
     paddingTop: Platform.OS === "ios" ? 50 : 40,
     flexDirection: "row",
@@ -244,96 +298,44 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   headerTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#FFF",
-    textShadowColor: "rgba(0,0,0,0.8)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
+    fontSize: 22, fontWeight: "bold", color: "#FFF",
+    textShadowColor: "rgba(0,0,0,0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
   },
+  badges: { flexDirection: "row", gap: 6, alignItems: "center" },
   trackingBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(74, 222, 128, 0.2)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: "rgba(74, 222, 128, 0.2)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20,
   },
-  liveIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4ADE80",
-    marginRight: 6,
+  liveIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#4ADE80", marginRight: 6 },
+  trackingText: { color: "#4ADE80", fontSize: 11, fontWeight: "bold", letterSpacing: 1 },
+  offlineBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(250, 204, 21, 0.15)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 20,
   },
-  trackingText: {
-    color: "#4ADE80",
-    fontSize: 11,
-    fontWeight: "bold",
-    letterSpacing: 1,
+  offlineText: { color: "#FACC15", fontSize: 10, fontWeight: "bold", letterSpacing: 0.5 },
+  cachedBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(96, 165, 250, 0.15)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 20,
   },
+  cachedText: { color: "#60A5FA", fontSize: 10, fontWeight: "bold", letterSpacing: 0.5 },
   centerButton: {
-    position: "absolute",
-    right: 20,
-    bottom: 240,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    position: "absolute", right: 20, bottom: 240,
+    width: 48, height: 48, borderRadius: 24,
     backgroundColor: "rgba(30, 30, 30, 0.9)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#333",
+    justifyContent: "center", alignItems: "center",
+    borderWidth: 1, borderColor: "#333",
   },
   bottomPanel: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
+    position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: "rgba(10, 10, 10, 0.95)",
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    borderColor: "#222",
+    paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    borderTopWidth: 1, borderColor: "#222",
   },
-  panelRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 16,
-  },
-  panelLabel: {
-    color: "#666",
-    fontSize: 10,
-    fontWeight: "bold",
-    letterSpacing: 1,
-    marginBottom: 4,
-    textAlign: "center",
-  },
-  panelValue: {
-    color: "#FFF",
-    fontSize: 20,
-    fontWeight: "bold",
-    textAlign: "center",
-  },
-  panelHint: {
-    color: "#666",
-    fontSize: 14,
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  sosButton: {
-    backgroundColor: "#EF4444",
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  sosButtonText: {
-    color: "#FFF",
-    fontSize: 18,
-    fontWeight: "bold",
-    letterSpacing: 1,
-  },
+  panelRow: { flexDirection: "row", justifyContent: "space-around", marginBottom: 16 },
+  panelLabel: { color: "#666", fontSize: 10, fontWeight: "bold", letterSpacing: 1, marginBottom: 4, textAlign: "center" },
+  panelValue: { color: "#FFF", fontSize: 20, fontWeight: "bold", textAlign: "center" },
+  panelHint: { color: "#666", fontSize: 14, textAlign: "center", marginBottom: 20 },
+  sosButton: { backgroundColor: "#EF4444", paddingVertical: 16, borderRadius: 16, alignItems: "center" },
+  sosButtonText: { color: "#FFF", fontSize: 18, fontWeight: "bold", letterSpacing: 1 },
 });

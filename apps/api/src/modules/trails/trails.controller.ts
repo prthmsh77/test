@@ -34,6 +34,14 @@ export class TrailsController {
     return this.trailsService.getWaypoints(id);
   }
 
+  @Get(':id/tile-manifest')
+  @ApiOperation({
+    summary: 'Get OSM tile manifest for offline caching — bbox, zoom 10–14, ~200–600 tiles with 5 km route buffer',
+  })
+  getTileManifest(@Param('id') id: string) {
+    return this.trailsService.getTileManifest(id);
+  }
+
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @Post(':id/edits')

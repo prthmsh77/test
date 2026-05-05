@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useTrekStore } from "../../src/store/trekStore";
 import { useAuthStore } from "../../src/store/authStore";
 import { api } from "../../src/services/api";
+import { downloadTiles, isTrailCached, deleteCachedTrail } from "../../src/services/offline-map.service";
 
 const DIFFICULTY_COLORS: Record<string, string> = {
   easy: "#4ADE80",
@@ -21,6 +22,14 @@ export default function CreateTrekScreen() {
   const startTrekStore = useTrekStore((s) => s.startTrek);
   const token = useAuthStore((s) => s.token);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadPct, setDownloadPct] = useState(0);
+  const [isCached, setIsCached] = useState(false);
+
+  // Check cache state when trail changes
+  useState(() => {
+    if (trail) isTrailCached(trail.id).then(setIsCached);
+  });
 
   const trail = trails.find((t) => t.id === trailId);
 
@@ -33,6 +42,66 @@ export default function CreateTrekScreen() {
   }
 
   const diffColor = DIFFICULTY_COLORS[trail.difficulty] || "#888";
+
+  const handleDownloadOfflineMap = async () => {
+    if (!trail) return;
+    if (isCached) {
+      Alert.alert(
+        "Map Already Cached",
+        "Offline map is already downloaded. Delete and re-download?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Re-download",
+            onPress: async () => {
+              await deleteCachedTrail(trail.id);
+              setIsCached(false);
+              handleDownloadOfflineMap();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    if (token) api.setToken(token);
+    const { data: manifest, error } = await api.getTileManifest(trail.id);
+    if (error || !manifest) {
+      Alert.alert("Offline Maps Unavailable", error || "This trail has no route geometry for offline caching.");
+      return;
+    }
+
+    Alert.alert(
+      "Download Offline Map",
+      `Download ${manifest.totalTiles} tiles (~${Math.round(manifest.estimatedSizeKb / 1024)} MB) for ${manifest.trailName}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Download",
+          onPress: async () => {
+            setIsDownloading(true);
+            setDownloadPct(0);
+            const cancelSignal = { cancelled: false };
+            await downloadTiles(
+              manifest,
+              (progress) => {
+                setDownloadPct(progress.percent);
+                if (progress.done) {
+                  setIsDownloading(false);
+                  setIsCached(true);
+                  Alert.alert("Download Complete", `Offline map for ${trail.name} is ready.`);
+                }
+                if (progress.error) {
+                  setIsDownloading(false);
+                }
+              },
+              cancelSignal
+            );
+          },
+        },
+      ]
+    );
+  };
 
   const handleStartTrek = async () => {
     if (activeTrek) {
@@ -179,6 +248,28 @@ export default function CreateTrekScreen() {
             <Text style={styles.safetyItem}>✓ Duress PIN for coercion scenarios</Text>
           </View>
 
+          {/* Offline Map Download */}
+          <TouchableOpacity
+            style={[styles.offlineButton, isDownloading && styles.offlineButtonDisabled]}
+            activeOpacity={0.8}
+            onPress={handleDownloadOfflineMap}
+            disabled={isDownloading}
+          >
+            {isDownloading ? (
+              <View style={styles.offlineButtonInner}>
+                <ActivityIndicator color="#60A5FA" size="small" />
+                <Text style={styles.offlineButtonText}>Downloading {downloadPct}%…</Text>
+              </View>
+            ) : (
+              <View style={styles.offlineButtonInner}>
+                <Ionicons name={isCached ? "checkmark-circle" : "download-outline"} size={20} color={isCached ? "#4ADE80" : "#60A5FA"} />
+                <Text style={[styles.offlineButtonText, isCached && { color: "#4ADE80" }]}>
+                  {isCached ? "Offline Map Ready" : "Download Offline Map"}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
           {/* Start Button */}
           <TouchableOpacity
             style={[styles.startButton, (activeTrek || isLoading) && styles.startButtonDisabled]}
@@ -310,6 +401,28 @@ const styles = StyleSheet.create({
     color: "#888",
     fontSize: 13,
     lineHeight: 22,
+  },
+  offlineButton: {
+    backgroundColor: "#0A1530",
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: "center",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#1A2540",
+  },
+  offlineButtonDisabled: {
+    opacity: 0.6,
+  },
+  offlineButtonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  offlineButtonText: {
+    color: "#60A5FA",
+    fontSize: 15,
+    fontWeight: "600",
   },
   startButton: {
     backgroundColor: "#FFF",
