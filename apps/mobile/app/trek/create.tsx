@@ -1,7 +1,10 @@
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, Alert } from "react-native";
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
 import { useTrekStore } from "../../src/store/trekStore";
+import { useAuthStore } from "../../src/store/authStore";
+import { api } from "../../src/services/api";
 
 const DIFFICULTY_COLORS: Record<string, string> = {
   easy: "#4ADE80",
@@ -15,7 +18,9 @@ export default function CreateTrekScreen() {
   const { trailId } = useLocalSearchParams();
   const trails = useTrekStore((s) => s.trails);
   const activeTrek = useTrekStore((s) => s.activeTrek);
-  const startTrek = useTrekStore((s) => s.startTrek);
+  const startTrekStore = useTrekStore((s) => s.startTrek);
+  const token = useAuthStore((s) => s.token);
+  const [isLoading, setIsLoading] = useState(false);
 
   const trail = trails.find((t) => t.id === trailId);
 
@@ -29,28 +34,86 @@ export default function CreateTrekScreen() {
 
   const diffColor = DIFFICULTY_COLORS[trail.difficulty] || "#888";
 
-  const handleStartTrek = () => {
+  const handleStartTrek = async () => {
     if (activeTrek) {
-      Alert.alert("Trek in Progress", "You already have an active trek. End it before starting a new one.");
+      Alert.alert("Trek in Progress", "End your current trek before starting a new one.");
       return;
     }
 
-    const trek = {
-      id: "trek_" + Date.now(),
-      trailId: trail.id,
-      trailName: trail.name,
-      state: "ACTIVE" as const,
-      startDate: new Date().toISOString(),
-      endDate: new Date(Date.now() + 86400000).toISOString(), // +24h
-      emergencyContacts: [],
-    };
+    setIsLoading(true);
+    try {
+      // Ensure the API client has the current token
+      if (token) api.setToken(token);
 
-    startTrek(trek);
-    Alert.alert(
-      "Trek Started! 🏔️",
-      `You are now live-tracking on ${trail.name}.\n\nYour emergency contacts will be notified.\nSwitch to the Map tab to see your location.`,
-      [{ text: "Go to Map", onPress: () => router.replace("/(tabs)/map") }]
-    );
+      // Fetch confirmed emergency contacts
+      const { data: contacts, error: contactsErr } = await api.getEmergencyContacts();
+      if (contactsErr || !contacts) {
+        Alert.alert("Error", "Could not fetch emergency contacts. Please try again.");
+        return;
+      }
+
+      const confirmedIds = contacts
+        .filter((c: any) => c.is_confirmed)
+        .map((c: any) => c.id as string);
+
+      if (confirmedIds.length === 0) {
+        Alert.alert(
+          "No Confirmed Contacts",
+          "Add at least one emergency contact and confirm them before starting a trek.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Add Contacts", onPress: () => router.push("/settings/emergency-contacts") },
+          ]
+        );
+        return;
+      }
+
+      // Create the trek in PLANNED state
+      const now = new Date();
+      const plannedEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000); // +24h default
+      const { data: trekData, error: createErr } = await api.createTrek({
+        trailId: trail.id,
+        plannedStartAt: now.toISOString(),
+        plannedEndAt: plannedEnd.toISOString(),
+        contactIds: confirmedIds,
+        erss112Consent: true,
+      });
+
+      if (createErr || !trekData?.id) {
+        Alert.alert("Error", createErr || "Could not create trek. Please try again.");
+        return;
+      }
+
+      // Start the trek → moves to ACTIVE, generates live-track token
+      const { data: startData, error: startErr } = await api.startTrek(trekData.id);
+      if (startErr) {
+        Alert.alert("Error", startErr || "Could not start trek.");
+        return;
+      }
+
+      // Sync to local Zustand store with the real backend trek ID
+      startTrekStore({
+        id: trekData.id,
+        trailId: trail.id,
+        trailName: trail.name,
+        state: "ACTIVE",
+        startDate: now.toISOString(),
+        endDate: plannedEnd.toISOString(),
+        emergencyContacts: confirmedIds,
+        liveTrackToken: startData?.live_track_token,
+      });
+
+      Alert.alert(
+        "Trek Started!",
+        `You are now live-tracking on ${trail.name}.\n\nYour emergency contacts have been notified.\nSwitch to the Map tab to see your location.`,
+        [{ text: "Go to Map", onPress: () => router.replace("/(tabs)/map") }]
+      );
+    } catch (err) {
+      console.error("Start trek error:", err);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -118,13 +181,18 @@ export default function CreateTrekScreen() {
 
           {/* Start Button */}
           <TouchableOpacity
-            style={[styles.startButton, activeTrek && styles.startButtonDisabled]}
+            style={[styles.startButton, (activeTrek || isLoading) && styles.startButtonDisabled]}
             activeOpacity={0.8}
             onPress={handleStartTrek}
+            disabled={!!activeTrek || isLoading}
           >
-            <Text style={styles.startButtonText}>
-              {activeTrek ? "Trek Already Active" : "Start Trek 🚀"}
-            </Text>
+            {isLoading ? (
+              <ActivityIndicator color="#000" />
+            ) : (
+              <Text style={styles.startButtonText}>
+                {activeTrek ? "Trek Already Active" : "Start Trek 🚀"}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>

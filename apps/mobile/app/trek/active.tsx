@@ -1,14 +1,22 @@
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, Alert, ScrollView } from "react-native";
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, Alert, ScrollView, TextInput, Modal } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
 import { useTrekStore } from "../../src/store/trekStore";
+import { useAuthStore } from "../../src/store/authStore";
+import { api } from "../../src/services/api";
 
 export default function ActiveTrekScreen() {
   const router = useRouter();
   const activeTrek = useTrekStore((s) => s.activeTrek);
   const currentLocation = useTrekStore((s) => s.currentLocation);
   const locationHistory = useTrekStore((s) => s.locationHistory);
-  const endTrek = useTrekStore((s) => s.endTrek);
+  const endTrekStore = useTrekStore((s) => s.endTrek);
+  const token = useAuthStore((s) => s.token);
+
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pin, setPin] = useState("");
+  const [isEnding, setIsEnding] = useState(false);
 
   if (!activeTrek) {
     return (
@@ -29,23 +37,33 @@ export default function ActiveTrekScreen() {
   const minutes = Math.floor((elapsed % 3600000) / 60000);
 
   const handleEndTrek = () => {
-    Alert.alert(
-      "End Trek",
-      "Are you sure you want to end this trek? In production, you would need to enter your 2FA PIN.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "End Trek",
-          style: "destructive",
-          onPress: () => {
-            endTrek();
-            Alert.alert("Trek Ended ✓", "Great job! Your trek data has been saved.", [
-              { text: "OK", onPress: () => router.replace("/(tabs)") },
-            ]);
-          },
-        },
-      ]
-    );
+    setPin("");
+    setShowPinModal(true);
+  };
+
+  const confirmEndTrek = async () => {
+    if (pin.length !== 6) return;
+
+    setIsEnding(true);
+    try {
+      if (token) api.setToken(token);
+      const { error } = await api.endTrek(activeTrek.id, pin);
+
+      if (error) {
+        Alert.alert("Error", error || "Could not end trek. Check your PIN and try again.");
+        return;
+      }
+
+      setShowPinModal(false);
+      endTrekStore();
+      Alert.alert("Trek Ended ✓", "Great job! Your trek data has been saved.", [
+        { text: "OK", onPress: () => router.replace("/(tabs)") },
+      ]);
+    } catch (err) {
+      Alert.alert("Error", "An unexpected error occurred.");
+    } finally {
+      setIsEnding(false);
+    }
   };
 
   return (
@@ -118,8 +136,10 @@ export default function ActiveTrekScreen() {
             <Text style={styles.safetyText}>Escalation Workflow Running</Text>
           </View>
           <View style={styles.safetyItem}>
-            <View style={[styles.statusDot, { backgroundColor: "#FACC15" }]} />
-            <Text style={styles.safetyText}>Emergency Contacts: Not configured</Text>
+            <View style={[styles.statusDot, { backgroundColor: activeTrek.emergencyContacts.length > 0 ? "#4ADE80" : "#FACC15" }]} />
+            <Text style={styles.safetyText}>
+              Emergency Contacts: {activeTrek.emergencyContacts.length > 0 ? `${activeTrek.emergencyContacts.length} active` : "Not configured"}
+            </Text>
           </View>
         </View>
 
@@ -146,175 +166,125 @@ export default function ActiveTrekScreen() {
           <Text style={styles.endButtonText}>End Trek</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* PIN Modal */}
+      <Modal visible={showPinModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Enter Your Trek PIN</Text>
+            <Text style={styles.modalSubtitle}>Enter your 6-digit PIN to confirm ending the trek.</Text>
+            <TextInput
+              style={styles.pinInput}
+              placeholder="••••••"
+              placeholderTextColor="#555"
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={6}
+              value={pin}
+              onChangeText={setPin}
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => { setShowPinModal(false); setPin(""); }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, (pin.length !== 6 || isEnding) && styles.modalConfirmDisabled]}
+                onPress={confirmEndTrek}
+                disabled={pin.length !== 6 || isEnding}
+              >
+                <Text style={styles.modalConfirmText}>
+                  {isEnding ? "Ending..." : "Confirm End"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  scrollContent: {
-    padding: 24,
-    paddingBottom: 40,
-  },
+  container: { flex: 1, backgroundColor: "#000" },
+  scrollContent: { padding: 24, paddingBottom: 40 },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#1A1A1A",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: "#1A1A1A", justifyContent: "center", alignItems: "center", marginBottom: 20,
   },
-  header: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
+  header: { alignItems: "center", marginBottom: 32 },
   liveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: "row", alignItems: "center",
     backgroundColor: "rgba(74, 222, 128, 0.15)",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 16,
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginBottom: 16,
   },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4ADE80",
-    marginRight: 8,
-  },
-  liveText: {
-    color: "#4ADE80",
-    fontSize: 12,
-    fontWeight: "bold",
-    letterSpacing: 2,
-  },
-  trekName: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#FFF",
-    textAlign: "center",
-  },
-  trekTime: {
-    color: "#888",
-    fontSize: 16,
-    marginTop: 8,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 12,
-  },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#4ADE80", marginRight: 8 },
+  liveText: { color: "#4ADE80", fontSize: 12, fontWeight: "bold", letterSpacing: 2 },
+  trekName: { fontSize: 28, fontWeight: "bold", color: "#FFF", textAlign: "center" },
+  trekTime: { color: "#888", fontSize: 16, marginTop: 8 },
+  statsRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
   statCard: {
-    flex: 1,
-    backgroundColor: "#111",
-    borderRadius: 16,
-    padding: 20,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1A1A1A",
+    flex: 1, backgroundColor: "#111", borderRadius: 16, padding: 20,
+    alignItems: "center", borderWidth: 1, borderColor: "#1A1A1A",
   },
-  statValue: {
-    color: "#FFF",
-    fontSize: 22,
-    fontWeight: "bold",
-    marginTop: 8,
-  },
-  statLabel: {
-    color: "#666",
-    fontSize: 12,
-    marginTop: 4,
-  },
+  statValue: { color: "#FFF", fontSize: 22, fontWeight: "bold", marginTop: 8 },
+  statLabel: { color: "#666", fontSize: 12, marginTop: 4 },
   safetySection: {
-    backgroundColor: "#0A0A0A",
-    borderRadius: 16,
-    padding: 20,
-    marginTop: 12,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "#1A1A1A",
+    backgroundColor: "#0A0A0A", borderRadius: 16, padding: 20,
+    marginTop: 12, marginBottom: 24, borderWidth: 1, borderColor: "#1A1A1A",
   },
-  sectionTitle: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "bold",
-    marginBottom: 16,
-  },
-  safetyItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 12,
-  },
-  safetyText: {
-    color: "#888",
-    fontSize: 14,
-  },
+  sectionTitle: { color: "#FFF", fontSize: 16, fontWeight: "bold", marginBottom: 16 },
+  safetyItem: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 12 },
+  safetyText: { color: "#888", fontSize: 14 },
   mapButton: {
-    backgroundColor: "#FFF",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    gap: 8,
+    backgroundColor: "#FFF", flexDirection: "row", justifyContent: "center",
+    alignItems: "center", paddingVertical: 16, borderRadius: 16, marginBottom: 12, gap: 8,
   },
-  mapButtonText: {
-    color: "#000",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  mapButtonText: { color: "#000", fontSize: 16, fontWeight: "bold" },
   sosButton: {
-    backgroundColor: "#EF4444",
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    marginBottom: 12,
+    backgroundColor: "#EF4444", paddingVertical: 16, borderRadius: 16,
+    alignItems: "center", marginBottom: 12,
   },
-  sosButtonText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "bold",
-    letterSpacing: 0.5,
-  },
+  sosButtonText: { color: "#FFF", fontSize: 16, fontWeight: "bold", letterSpacing: 0.5 },
   endButton: {
-    backgroundColor: "transparent",
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#333",
+    backgroundColor: "transparent", paddingVertical: 16, borderRadius: 16,
+    alignItems: "center", borderWidth: 1, borderColor: "#333",
   },
-  endButtonText: {
-    color: "#888",
-    fontSize: 16,
-    fontWeight: "600",
+  endButtonText: { color: "#888", fontSize: 16, fontWeight: "600" },
+  noTrek: { flex: 1, justifyContent: "center", alignItems: "center" },
+  noTrekText: { color: "#555", fontSize: 18, marginTop: 16 },
+  goBackText: { color: "#FFF", fontSize: 16, fontWeight: "600", marginTop: 20 },
+  // PIN Modal
+  modalOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "flex-end",
   },
-  noTrek: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+  modalCard: {
+    backgroundColor: "#111", borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 32, borderTopWidth: 1, borderColor: "#222",
   },
-  noTrekText: {
-    color: "#555",
-    fontSize: 18,
-    marginTop: 16,
+  modalTitle: { color: "#FFF", fontSize: 22, fontWeight: "bold", marginBottom: 8 },
+  modalSubtitle: { color: "#888", fontSize: 14, lineHeight: 22, marginBottom: 24 },
+  pinInput: {
+    backgroundColor: "#1A1A1A", borderRadius: 14, paddingHorizontal: 20,
+    paddingVertical: 18, color: "#FFF", fontSize: 28, fontWeight: "bold",
+    letterSpacing: 12, textAlign: "center", borderWidth: 1, borderColor: "#333",
+    marginBottom: 24,
   },
-  goBackText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 20,
+  modalButtons: { flexDirection: "row", gap: 12 },
+  modalCancelBtn: {
+    flex: 1, paddingVertical: 16, borderRadius: 14,
+    alignItems: "center", borderWidth: 1, borderColor: "#333",
   },
+  modalCancelText: { color: "#888", fontSize: 16, fontWeight: "600" },
+  modalConfirmBtn: {
+    flex: 1, paddingVertical: 16, borderRadius: 14,
+    alignItems: "center", backgroundColor: "#FFF",
+  },
+  modalConfirmDisabled: { backgroundColor: "#333" },
+  modalConfirmText: { color: "#000", fontSize: 16, fontWeight: "bold" },
 });

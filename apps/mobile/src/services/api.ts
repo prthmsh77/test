@@ -1,10 +1,12 @@
 /**
  * API Client for Shikhar Backend.
- * Base URL should be configured via environment variable in production.
- * For local dev, it connects to the machine running the NestJS server.
+ * Set EXPO_PUBLIC_API_BASE_URL in .env for production.
+ * Defaults to the standard local dev machine address.
  */
 
-const API_BASE_URL = "http://192.168.1.6:3000"; // Update this to your backend IP
+const API_BASE_URL =
+  (typeof process !== "undefined" && process.env?.EXPO_PUBLIC_API_BASE_URL) ||
+  "http://localhost:3000";
 
 class ApiClient {
   private token: string | null = null;
@@ -95,12 +97,14 @@ class ApiClient {
 
   // ─── Treks ─────────────────────────────────────────
   async createTrek(data: {
-    trail_id: string;
-    start_date: string;
-    end_date: string;
-    emergency_contact_ids: string[];
+    trailId?: string;
+    plannedStartAt: string;
+    plannedEndAt: string;
+    contactIds: string[];
+    erss112Consent: boolean;
+    groupSize?: number;
   }) {
-    return this.request<{ id: string; live_track_token: string }>(
+    return this.request<{ id: string }>(
       "/api/v1/treks",
       {
         method: "POST",
@@ -110,7 +114,11 @@ class ApiClient {
   }
 
   async startTrek(trekId: string) {
-    return this.request(`/api/v1/treks/${trekId}/start`, {
+    return this.request<{
+      id: string;
+      live_track_token: string;
+      live_track_url: string;
+    }>(`/api/v1/treks/${trekId}/start`, {
       method: "POST",
     });
   }
@@ -118,8 +126,14 @@ class ApiClient {
   async endTrek(trekId: string, pin: string) {
     return this.request(`/api/v1/treks/${trekId}/end`, {
       method: "POST",
-      body: JSON.stringify({ pin }),
+      // trekId must be in body due to EndTrekDto validation
+      body: JSON.stringify({ trekId, pin }),
     });
+  }
+
+  async listUserTreks(status?: string) {
+    const qs = status ? `?status=${status}` : "";
+    return this.request<any[]>(`/api/v1/treks${qs}`);
   }
 
   // ─── Pings ─────────────────────────────────────────
@@ -141,10 +155,11 @@ class ApiClient {
   }
 
   // ─── SOS ───────────────────────────────────────────
-  async triggerSOS(trekId: string, type: "HELP" | "MEDICAL" | "CRITICAL") {
+  async triggerSOS(trekId: string, mode: "HELP" | "MEDICAL" | "CRITICAL") {
     return this.request(`/api/v1/treks/${trekId}/sos`, {
       method: "POST",
-      body: JSON.stringify({ type }),
+      // Backend SosDto expects `trekId` + `mode` (SosMode enum)
+      body: JSON.stringify({ trekId, mode }),
     });
   }
 

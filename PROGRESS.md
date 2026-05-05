@@ -164,30 +164,47 @@ Triund, Kedarkantha, Hampta Pass, Rajmachi, Kalsubai.
 - [x] 4.0 Created `packages/gis` (TypeScript module with Turf.js) for abstracting GeoJSON schema-aware diffing and Bounding Box caching.
 - [x] 4.1 Created Migration `010_wikigis.sql` for WikiGIS `trail_edits` version control, UserRank, and TrailRank.
 - [x] 4.1.5 Expanded `apps/ml` Exertion limits using Hypotenuse Velocity ($V_H$) math to `/exertion` and `/classify` endpoint logic.
-- [ ] 4.2 WebSocket gateway (NestJS socket.io) — live ping fan-out to E-Contacts
-- [ ] 4.3 Redis Streams consumer for ping events
+- [x] 4.2 WebSocket gateway (`apps/api/src/modules/live-track/live-track.gateway.ts`)
+  - NestJS socket.io `/live-track` namespace; rooms keyed by `trek:{trekId}`
+  - Validates regular auth JWT or live-track JWT on connect; auto-joins room for live-track tokens
+  - `join-trek` event lets the trekker's device join its own room
+  - Emits `ping`, `off-route`, `altitude-alert` events to the trek room
+  - IoAdapter wired in `main.ts` to attach socket.io to the Fastify HTTP server
+- [x] 4.3 Redis Streams consumer (`apps/api/src/modules/live-track/redis-streams.consumer.ts`)
+  - `PingsService.ingestBatch()` XADDs latest ping to `shikhar:pings` stream after DB insert (non-fatal if Redis down)
+  - `RedisStreamsConsumer` runs XREADGROUP loop; calls `LiveTrackGateway.emitPingToTrek()` on each message
+  - `LiveTrackModule` provides `REDIS_CLIENT` (ioredis); exported to `PingsModule`
 
-## Phase 5: Terrain & External Systems Integration
+## Phase 5: Mobile API Wiring + Terrain Integration
 
 - [x] 5.0 Implemented Token-based GeoJSON diffing in `packages/gis/src/diffing.ts`.
 - [x] 5.1 Built Backend WikiGIS routes in `apps/api` (`proposeEdit`, `mergeEdit`) resolving crowdsourced edits and updating UserRank.
+- [x] 5.1 Wire login screen → `POST /api/v1/auth/otp/request` + `POST /api/v1/auth/otp/verify`
+  - `login.tsx` calls `api.requestOtp()` to register OTP with backend after MSG91 send
+  - `otp.tsx` calls `api.verifyOtp()` to obtain a real JWT; dev fallback preserved
+- [x] 5.2 Wire trek creation → `POST /api/v1/treks` + `POST /api/v1/treks/:id/start`
+  - `create.tsx` fetches confirmed emergency contacts, calls `createTrek` then `startTrek`
+  - Real backend trek ID stored in `useTrekStore`; live-track token forwarded to socket service
+- [x] 5.3 Wire trek start — covered above
+- [x] 5.4 Wire GPS pings → `POST /api/v1/pings/batch` (PingService already implemented)
+- [x] 5.5 Wire trek end → `POST /api/v1/treks/:id/end` (with 6-digit PIN modal)
+  - `active.tsx` shows a `Modal` PIN input; calls `api.endTrek(id, pin)` then clears store
+- [x] 5.6 Wire SOS → `POST /api/v1/treks/:id/sos`
+  - `sos.tsx` calls `api.triggerSOS(id, mode)` on confirmation (mode field matches SosMode enum)
+- [x] 5.7 WebSocket connection for live-track updates
+  - `src/services/socket.service.ts` — singleton `liveTrackSocket` (socket.io-client v4)
+  - `useTrekStore.startTrek()` connects using `liveTrackToken`; off-route and altitude-alert events logged
+  - `useTrekStore.endTrek()` disconnects the socket
+- [x] 5.8 Emergency contacts CRUD from mobile
+  - `settings/emergency-contacts.tsx` loads contacts from API on mount, adds/deletes via API, pull-to-refresh
 - [ ] 5.2 Implement PMTiles offline maps for mobile (Terrain-RGB rendering)
 - [ ] 5.3 Integrate MMRCC into Temporal escalation workflow
-
-- [ ] 5.1 Wire login screen → `POST /api/v1/auth/otp/request` + `POST /api/v1/auth/otp/verify`
-- [ ] 5.2 Wire trek creation → `POST /api/v1/treks`
-- [ ] 5.3 Wire trek start → `POST /api/v1/treks/:id/start`
-- [ ] 5.4 Wire GPS pings → `POST /api/v1/pings/batch` (from PingService)
-- [ ] 5.5 Wire trek end → `POST /api/v1/treks/:id/end` (with 2FA PIN)
-- [ ] 5.6 Wire SOS → `POST /api/v1/treks/:id/sos`
-- [ ] 5.7 WebSocket connection for live-track updates
-- [ ] 5.8 Emergency contacts CRUD from mobile
 
 ---
 
 ## Blockers
 
-None. Phase 3.5 (Mobile Frontend) complete. Ready for Phase 4/5.
+None. Phases 4.2, 4.3, and 5.1–5.8 complete.
 
 ---
 

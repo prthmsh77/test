@@ -1,47 +1,74 @@
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, TextInput, FlatList, Alert, KeyboardAvoidingView, Platform, Share, Linking } from "react-native";
-import { useState } from "react";
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, TextInput, FlatList, Alert, KeyboardAvoidingView, Platform, Share, Linking, ActivityIndicator } from "react-native";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as SMS from 'expo-sms';
+import { useAuthStore } from "../../src/store/authStore";
+import { api } from "../../src/services/api";
 
 interface EmergencyContact {
   id: string;
   name: string;
   phone: string;
   relation: string;
-  confirmed: boolean;
+  is_confirmed: boolean;
 }
 
 const RELATIONS = ["Parent", "Spouse", "Sibling", "Friend", "Guide", "Other"];
 
 export default function EmergencyContactsScreen() {
   const router = useRouter();
+  const token = useAuthStore((s) => s.token);
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [relation, setRelation] = useState("Parent");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleAdd = () => {
+  const loadContacts = useCallback(async () => {
+    if (token) api.setToken(token);
+    setIsLoading(true);
+    const { data, error } = await api.getEmergencyContacts();
+    if (data) {
+      setContacts(data as EmergencyContact[]);
+    } else {
+      console.error("Failed to load contacts:", error);
+    }
+    setIsLoading(false);
+  }, [token]);
+
+  useEffect(() => {
+    loadContacts();
+  }, [loadContacts]);
+
+  const handleAdd = async () => {
     if (!name.trim() || phone.length < 10) {
       Alert.alert("Error", "Please enter a valid name and 10-digit phone number.");
       return;
     }
 
-    const newContact: EmergencyContact = {
-      id: "ec_" + Date.now(),
+    setIsSaving(true);
+    const { data, error } = await api.addEmergencyContact({
       name: name.trim(),
-      phone: phone.trim(),
+      phone: "+91" + phone.trim(),
       relation,
-      confirmed: true,
-    };
+    });
 
-    setContacts([...contacts, newContact]);
+    if (error || !data) {
+      Alert.alert("Error", error || "Could not add contact. Please try again.");
+      setIsSaving(false);
+      return;
+    }
+
+    setIsSaving(false);
     setName("");
     setPhone("");
     setShowForm(false);
+    await loadContacts();
 
-    // Offer to send confirmation
+    const newContact = { name: name.trim(), phone: phone.trim() };
     Alert.alert(
       "Contact Added ✓",
       `Send a confirmation message to ${newContact.name}?`,
@@ -59,38 +86,22 @@ export default function EmergencyContactsScreen() {
     );
   };
 
-  const sendNativeSMSConfirmation = async (contact: EmergencyContact) => {
+  const sendNativeSMSConfirmation = async (contact: { name: string; phone: string }) => {
     const isAvailable = await SMS.isAvailableAsync();
     if (isAvailable) {
       const message = `Hi ${contact.name}! 🏔️\n\nI've added you as my Emergency Contact on Shikhar (India's Trekking Safety App).\n\nWhen I start a trek, you'll receive my live location link.\n\nIn case of emergency, you'll be automatically notified.\n\n— Sent via Shikhar App`;
-      const { result } = await SMS.sendSMSAsync(
-        [contact.phone],
-        message
-      );
-      if (result === 'sent') {
-        Alert.alert("Success", "SMS confirmation sent!");
-      }
+      await SMS.sendSMSAsync([contact.phone], message);
     } else {
       Alert.alert("Error", "SMS is not available on this device.");
     }
   };
 
-  const sendWhatsAppConfirmation = (contact: EmergencyContact) => {
+  const sendWhatsAppConfirmation = (contact: { name: string; phone: string }) => {
     const message = `Hi ${contact.name}! 🏔️\n\nI've added you as my Emergency Contact on *Shikhar* (India's Trekking Safety App).\n\nWhen I start a trek, you'll receive my live location link so you can track me in real-time.\n\nIn case of emergency, you'll be automatically notified via SMS and calls.\n\n— Sent via Shikhar App`;
     const url = `whatsapp://send?phone=91${contact.phone}&text=${encodeURIComponent(message)}`;
     Linking.openURL(url).catch(() => {
       Alert.alert("Error", "WhatsApp is not installed on this device.");
     });
-  };
-
-  const shareConfirmationLink = async (contact: EmergencyContact) => {
-    try {
-      await Share.share({
-        message: `Hi ${contact.name}! I've added you as my Emergency Contact on Shikhar (India's Trekking Safety App). When I start a trek, you'll get my live location link. In case of emergency, you'll be automatically notified. — Sent via Shikhar App`,
-      });
-    } catch (error) {
-      console.log("Share error:", error);
-    }
   };
 
   const handleDelete = (id: string) => {
@@ -99,7 +110,14 @@ export default function EmergencyContactsScreen() {
       {
         text: "Remove",
         style: "destructive",
-        onPress: () => setContacts(contacts.filter((c) => c.id !== id)),
+        onPress: async () => {
+          const { error } = await api.deleteEmergencyContact(id);
+          if (error) {
+            Alert.alert("Error", error || "Could not remove contact.");
+            return;
+          }
+          setContacts((prev) => prev.filter((c) => c.id !== id));
+        },
       },
     ]);
   };
@@ -127,46 +145,54 @@ export default function EmergencyContactsScreen() {
         </View>
 
         {/* Contact List */}
-        <FlatList
-          data={contacts}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Ionicons name="people-outline" size={48} color="#333" />
-              <Text style={styles.emptyText}>No emergency contacts yet</Text>
-              <Text style={styles.emptySubtext}>
-                Add up to 5 contacts who will be notified during your treks.
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <View style={styles.contactCard}>
-              <View style={styles.contactInfo}>
-                <View style={styles.contactAvatar}>
-                  <Text style={styles.contactInitial}>
-                    {item.name.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactPhone}>+91 {item.phone}</Text>
-                  <View style={styles.contactMeta}>
-                    <View style={styles.relationBadge}>
-                      <Text style={styles.relationText}>{item.relation}</Text>
-                    </View>
-                    <View style={[styles.statusBadge, styles.confirmed]}>
-                      <Text style={styles.statusText}>Active</Text>
+        {isLoading ? (
+          <ActivityIndicator color="#FFF" style={{ marginTop: 40 }} />
+        ) : (
+          <FlatList
+            data={contacts}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            onRefresh={loadContacts}
+            refreshing={isLoading}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={48} color="#333" />
+                <Text style={styles.emptyText}>No emergency contacts yet</Text>
+                <Text style={styles.emptySubtext}>
+                  Add up to 5 contacts who will be notified during your treks.
+                </Text>
+              </View>
+            }
+            renderItem={({ item }) => (
+              <View style={styles.contactCard}>
+                <View style={styles.contactInfo}>
+                  <View style={styles.contactAvatar}>
+                    <Text style={styles.contactInitial}>
+                      {item.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.contactName}>{item.name}</Text>
+                    <Text style={styles.contactPhone}>{item.phone}</Text>
+                    <View style={styles.contactMeta}>
+                      <View style={styles.relationBadge}>
+                        <Text style={styles.relationText}>{item.relation}</Text>
+                      </View>
+                      <View style={[styles.statusBadge, item.is_confirmed ? styles.confirmed : styles.pending]}>
+                        <Text style={[styles.statusText, { color: item.is_confirmed ? "#4ADE80" : "#FACC15" }]}>
+                          {item.is_confirmed ? "Confirmed" : "Pending"}
+                        </Text>
+                      </View>
                     </View>
                   </View>
+                  <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                    <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                  <Ionicons name="trash-outline" size={20} color="#EF4444" />
-                </TouchableOpacity>
               </View>
-            </View>
-          )}
-        />
+            )}
+          />
+        )}
 
         {/* Add Form */}
         {showForm ? (
@@ -216,8 +242,16 @@ export default function EmergencyContactsScreen() {
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowForm(false)}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>
-                <Text style={styles.addBtnText}>Add Contact</Text>
+              <TouchableOpacity
+                style={[styles.addBtn, isSaving && styles.addBtnDisabled]}
+                onPress={handleAdd}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={styles.addBtnText}>Add Contact</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -236,12 +270,8 @@ export default function EmergencyContactsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 16,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16,
   },
   backBtn: {
     width: 44, height: 44, borderRadius: 22,
@@ -276,9 +306,7 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   confirmed: { backgroundColor: "#0A2A0A" },
   pending: { backgroundColor: "#2A2A0A" },
-  statusText: { fontSize: 11, color: "#FACC15" },
-  manualConfirmBtn: { marginTop: 10, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: "#1A3A1A", borderRadius: 8, alignSelf: "flex-start", borderWidth: 1, borderColor: "#2A5A2A" },
-  manualConfirmText: { color: "#4ADE80", fontSize: 12, fontWeight: "bold" },
+  statusText: { fontSize: 11 },
   formOverlay: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: "#111", borderTopLeftRadius: 24, borderTopRightRadius: 24,
@@ -307,6 +335,7 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: { color: "#888", fontSize: 16, fontWeight: "600" },
   addBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: "center", backgroundColor: "#FFF" },
+  addBtnDisabled: { backgroundColor: "#555" },
   addBtnText: { color: "#000", fontSize: 16, fontWeight: "bold" },
   floatingAdd: {
     position: "absolute", bottom: 24, right: 24,

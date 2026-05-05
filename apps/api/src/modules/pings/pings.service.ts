@@ -1,8 +1,10 @@
 import { Injectable, Inject, ForbiddenException } from '@nestjs/common';
 import { Pool } from 'pg';
+import type Redis from 'ioredis';
 import { DB_POOL } from '../../database/database.module';
 import { TreksService } from '../treks/treks.service';
 import { AMS_ALTITUDE_THRESHOLDS_M } from '@shikhar/shared';
+import { REDIS_CLIENT, STREAM_KEY } from '../live-track/redis-streams.consumer';
 import type { PingDto } from './dto/ping.dto';
 
 @Injectable()
@@ -10,6 +12,7 @@ export class PingsService {
   constructor(
     @Inject(DB_POOL) private readonly db: Pool,
     private readonly treksService: TreksService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /**
@@ -89,6 +92,26 @@ export class PingsService {
         );
         if (alert) altitudeAlert = alert;
         previousAlt = ping.altitudeMeters;
+      }
+    }
+
+    // Publish the batch summary to Redis Streams so the WebSocket consumer
+    // can fan-out the latest ping position to E-Contact live-track sessions.
+    if (accepted > 0) {
+      const lastPing = pings[pings.length - 1];
+      try {
+        await this.redis.xadd(
+          STREAM_KEY, '*',
+          'trek_id', lastPing.trekId,
+          'lat', String(lastPing.lat),
+          'lng', String(lastPing.lng),
+          'altitude_meters', String(lastPing.altitudeMeters ?? ''),
+          'recorded_at', String(lastPing.recordedAt),
+          'off_route', String(offRoute),
+          'altitude_alert', altitudeAlert ?? '',
+        );
+      } catch {
+        // Non-fatal: Redis unavailable should not fail the ingest response.
       }
     }
 
