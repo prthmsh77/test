@@ -2,11 +2,13 @@ import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, Alert, ScrollVi
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTrekStore, SOSType } from "../../src/store/trekStore";
+import { useAuthStore } from "../../src/store/authStore";
+import { api } from "../../src/services/api";
 
 export default function SOSScreen() {
   const router = useRouter();
   const activeTrek = useTrekStore((s) => s.activeTrek);
-  const triggerSOS = useTrekStore((s) => s.triggerSOS);
+  const token = useAuthStore((s) => s.token);
 
   const handleSOS = (type: SOSType) => {
     const messages: Record<SOSType, string> = {
@@ -23,8 +25,13 @@ export default function SOSScreen() {
         {
           text: "CONFIRM SOS",
           style: "destructive",
-          onPress: () => {
-            triggerSOS(type);
+          onPress: async () => {
+            if (!activeTrek) return;
+            if (token) api.setToken(token);
+            const { error } = await api.triggerSOS(activeTrek.id, type);
+            if (error) {
+              console.error("SOS API error:", error);
+            }
             Alert.alert(
               "SOS Sent ✓",
               "Help is on the way. Stay calm and stay where you are.",

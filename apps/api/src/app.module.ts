@@ -8,6 +8,7 @@ import { TreksModule } from './modules/treks/treks.module';
 import { TrailsModule } from './modules/trails/trails.module';
 import { PingsModule } from './modules/pings/pings.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { LiveTrackModule } from './modules/live-track/live-track.module';
 import { DatabaseModule } from './database/database.module';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -24,6 +25,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     TrailsModule,
     PingsModule,
     NotificationsModule,
+    LiveTrackModule,
   ],
   providers: [
     // RolesGuard is registered globally — any controller can use @Roles() without

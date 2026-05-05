@@ -5,6 +5,7 @@ import {
 } from '@nestjs/platform-fastify';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -36,6 +37,9 @@ async function bootstrap() {
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);
   }
+
+  // Attach socket.io to the underlying Fastify HTTP server.
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // CORS: allow the web live-track app and the mobile app's localhost in dev.
   app.enableCors({

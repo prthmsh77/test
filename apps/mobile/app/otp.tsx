@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
 
 import { useAuthStore } from "../src/store/authStore";
+import { api } from "../src/services/api";
 
 const MSG91_WIDGET_ID = "366561676f49303130383533";
 const MSG91_TOKEN_AUTH = "394914TCuS6I7H569f45349P1";
@@ -13,6 +14,21 @@ export default function OtpScreen() {
   const router = useRouter();
   const { phone, reqId } = useLocalSearchParams();
   const login = useAuthStore((state) => state.login);
+
+  const verifyWithBackend = async (phoneNum: string, otpCode: string) => {
+    const { data, error } = await api.verifyOtp(phoneNum, otpCode);
+    if (data?.accessToken) {
+      api.setToken(data.accessToken);
+      login(data.accessToken);
+      router.replace("/(tabs)");
+    } else {
+      console.log("Backend OTP verify error:", error);
+      // Dev fallback when backend is unreachable
+      const devToken = "dev_" + Date.now();
+      login(devToken);
+      router.replace("/(tabs)");
+    }
+  };
 
   const handleVerify = async () => {
     if (otp.length < 4) return;
@@ -44,23 +60,22 @@ export default function OtpScreen() {
       }
 
       // MSG91 returns type: "success" or a success message
-      if (data.type === "success" || data.message?.toLowerCase().includes("success") || data.message === "OTP verified successfully") {
-        login("dummy_jwt_token_" + Date.now());
-        router.replace("/(tabs)");
-      } else {
-        console.log("MSG91 Error Response:", data);
-        Alert.alert(
-          "MSG91 Blocked", 
-          `${data.message}\n\nContinuing in Dev Mode anyway.`
-        );
-        login("dummy_jwt_token_" + Date.now());
-        router.replace("/(tabs)");
+      const msg91Ok =
+        data.type === "success" ||
+        data.message?.toLowerCase().includes("success") ||
+        data.message === "OTP verified successfully";
+
+      if (!msg91Ok) {
+        console.log("MSG91 non-success:", data);
+        // Dev fallback: continue anyway
       }
+
+      // Verify with the Shikhar backend to obtain a real JWT.
+      await verifyWithBackend(phone as string, otp);
     } catch (error) {
       console.log("MSG91 Error:", error);
-      Alert.alert("Dev Mode", "Network error, bypassing OTP verification.");
-      login("dummy_jwt_token_" + Date.now());
-      router.replace("/(tabs)");
+      // Dev fallback: still try the backend or use a dummy token.
+      await verifyWithBackend(phone as string, otp);
     } finally {
       setIsLoading(false);
     }

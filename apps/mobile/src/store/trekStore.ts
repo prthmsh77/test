@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { liveTrackSocket } from '../services/socket.service';
 
 export type TrekState = 'PLANNED' | 'ACTIVE' | 'COMPLETED' | 'OVERDUE' | 'INCIDENT' | 'CANCELLED';
 export type SOSType = 'HELP' | 'MEDICAL' | 'CRITICAL';
@@ -34,27 +35,21 @@ export interface LocationPing {
 }
 
 interface TrekStoreState {
-  // Available trails
   trails: Trail[];
-
-  // Active trek
   activeTrek: Trek | null;
-
-  // Location tracking
   currentLocation: LocationPing | null;
   locationHistory: LocationPing[];
   isTracking: boolean;
+  wsConnected: boolean;
 
-  // Actions
   setTrails: (trails: Trail[]) => void;
   startTrek: (trek: Trek) => void;
   endTrek: () => void;
   updateLocation: (location: LocationPing) => void;
   setTracking: (tracking: boolean) => void;
-  triggerSOS: (type: SOSType) => void;
+  setWsConnected: (connected: boolean) => void;
 }
 
-// MVP seed trails from PROGRESS.md
 const SEED_TRAILS: Trail[] = [
   {
     id: '1',
@@ -109,33 +104,48 @@ export const useTrekStore = create<TrekStoreState>((set) => ({
   currentLocation: null,
   locationHistory: [],
   isTracking: false,
+  wsConnected: false,
 
   setTrails: (trails) => set({ trails }),
 
-  startTrek: (trek) =>
+  startTrek: (trek) => {
     set({
       activeTrek: { ...trek, state: 'ACTIVE' },
       locationHistory: [],
       isTracking: true,
-    }),
+    });
 
-  endTrek: () =>
+    // Connect to WebSocket and join the trek room for real-time alerts.
+    if (trek.liveTrackToken) {
+      liveTrackSocket.connect(trek.liveTrackToken);
+      liveTrackSocket.joinTrek(trek.id);
+      // Forward off-route and altitude alerts to console (UI can subscribe separately).
+      liveTrackSocket.on('off-route', (data) => {
+        console.warn('[WS] Off-route alert:', data);
+      });
+      liveTrackSocket.on('altitude-alert', (data) => {
+        console.warn('[WS] Altitude alert:', data);
+      });
+    }
+  },
+
+  endTrek: () => {
+    liveTrackSocket.disconnect();
     set({
       activeTrek: null,
       isTracking: false,
       locationHistory: [],
-    }),
+      wsConnected: false,
+    });
+  },
 
   updateLocation: (location) =>
     set((state) => ({
       currentLocation: location,
-      locationHistory: [...state.locationHistory, location].slice(-500), // Keep last 500 pings
+      locationHistory: [...state.locationHistory, location].slice(-500),
     })),
 
   setTracking: (tracking) => set({ isTracking: tracking }),
 
-  triggerSOS: (type) => {
-    // In production, this calls POST /api/v1/treks/:id/sos
-    console.log(`🚨 SOS TRIGGERED: ${type}`);
-  },
+  setWsConnected: (connected) => set({ wsConnected: connected }),
 }));

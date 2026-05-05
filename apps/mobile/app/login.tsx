@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, SafeAreaView, ActivityIndicator, Alert } from "react-native";
 import { useState } from "react";
 import { useRouter } from "expo-router";
+import { api } from "../src/services/api";
 
 const MSG91_WIDGET_ID = "366561676f49303130383533";
 const MSG91_TOKEN_AUTH = "394914TCuS6I7H569f45349P1";
@@ -39,14 +40,16 @@ export default function LoginScreen() {
       
       if (data.type === "success") {
         // MSG91 returns the reqId inside the "message" field on success
+        // Also notify the backend so it records the OTP request (dev: logs to console)
+        api.requestOtp(phoneNumber).catch(() => {/* non-fatal */});
         router.push({ pathname: "/otp", params: { phone: phoneNumber, reqId: data.message } });
       } else {
         console.log("MSG91 Error Response:", data);
         Alert.alert(
-          "MSG91 Blocked", 
+          "MSG91 Blocked",
           `${data.message}\n\nContinuing in Dev Mode anyway.`
         );
-        // Fallback for dev mode
+        api.requestOtp(phoneNumber).catch(() => {/* non-fatal */});
         router.push({ pathname: "/otp", params: { phone: phoneNumber, reqId: data.reqId || "" } });
       }
     } catch (error) {
